@@ -1,7 +1,7 @@
 import requests
 import subprocess
 
-API_KEY = "aab8aada07f42dfe8906834df0736c5a"
+API_KEY = ""
 BASE_URL = "https://api.themoviedb.org/3"
 
 def fetch_genres(language="en-US"):
