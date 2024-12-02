@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movie Personality App</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <div id="sidebar">
+            <h2>Movie Personality App</h2>
+        </div>
+
+        <!-- Main Chat Section -->
+        <div id="main">
+            <div id="chat-window">
+                <div id="chat-messages">
+                    <div class="message system">
+                        <p>Welcome! Select a genre to get started.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- User Input Section -->
+            <div id="input-container">
+                <select id="genre-select" class="input-box">
+                    <option value="" disabled selected>Select a genre...</option>
+                    {% for genre_id, genre_name in genres.items() %}
+                        <option value="{{ genre_id }}">{{ genre_name }}</option>
+                    {% endfor %}
+                </select>
+                <button class="send-button" onclick="fetchMovies()">Fetch Movies</button>
+            </div>
+
+            <!-- Dynamic Content -->
+            <div id="dynamic-content">
+                <div id="movie-dropdown" class="hidden">
+                    <div id="movie-list"></div>
+                    <button id="submit-button" class="hidden" onclick="submitMovies()">Submit Movies</button>
+                    <button class="pagination-button" onclick="previousPage()">Previous</button>
+                    <button class="pagination-button" onclick="nextPage()">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1; // Track the current page for pagination
+        let selectedMovies = []; // Track selected movies across genres and pages
+        let temporarySelections = []; // Track selections on the current page
+
+        const chatMessages = document.getElementById("chat-messages");
+        const movieDropdown = document.getElementById("movie-dropdown");
+        const movieList = document.getElementById("movie-list");
+        const submitButton = document.getElementById("submit-button");
+
+        function addMessage(content, sender = "user") {
+            const messageDiv = document.createElement("div");
+            messageDiv.className = `message ${sender}`;
+            messageDiv.innerHTML = `<p>${content}</p>`;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        async function fetchMovies() {
+            const genreId = document.getElementById("genre-select").value;
+            if (!genreId) {
+                addMessage("Please select a genre first.", "system");
+                return;
+            }
+            addMessage("Fetching movies for the selected genre...", "system");
+
+            const response = await fetch("/get_movies", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ genre_id: genreId, page: currentPage }),
+            });
+
+            const movies = await response.json();
+            let movieListHtml = "<p>Select up to 3 movies:</p>";
+            movies.forEach((movie, index) => {
+                // Mark movies already selected as checked
+                const isChecked = selectedMovies.includes(movie.title) ? "checked" : "";
+                movieListHtml += `
+                    <label>
+                        <input type="checkbox" class="movie-checkbox" value="${movie.title}" ${isChecked}>
+                        ${movie.title} (${new Date(movie.release_date).getFullYear()})
+                    </label><br>
+                `;
+            });
+
+            movieList.innerHTML = movieListHtml;
+            movieDropdown.classList.remove("hidden");
+            submitButton.classList.remove("hidden");
+
+            // Update temporary selections with the movies currently displayed
+            temporarySelections = movies.map(movie => movie.title);
+        }
+
+        async function submitMovies() {
+            // Gather selected movies from the current page
+            const selected = Array.from(document.querySelectorAll(".movie-checkbox:checked")).map(input => input.value);
+
+            // Add selections from the current page to `selectedMovies`
+            selectedMovies = [...new Set([...selectedMovies, ...selected])]; // Avoid duplicates
+
+            // Display selected movies in chat
+            addMessage(`Selected movies so far: ${selectedMovies.join(", ")}`, "user");
+
+            // Hide dropdown after submission
+            toggleMovieMenu(true);
+
+            // Check if 3 movies have been selected
+            if (selectedMovies.length === 3) {
+                addMessage("You have selected 3 movies. Running analysis...", "system");
+
+                try {
+                    // Generate personality traits
+                    const traitsResponse = await fetch("/generate_traits", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ movies: selectedMovies }),
+                    });
+
+                    const traits = (await traitsResponse.json()).traits;
+                    addMessage(`Your personality traits: ${traits}`, "system");
+
+                    // Determine MBTI type
+                    const mbtiResponse = await fetch("/determine_mbti", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ traits }),
+                    });
+
+                    const mbtiType = (await mbtiResponse.json()).mbti_type;
+                    addMessage(`Your MBTI type: ${mbtiType}`, "system");
+
+                    // Recommend books
+                    const booksResponse = await fetch("/recommend_books", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ mbti_type: mbtiType }),
+                    });
+
+                    const recommendations = (await booksResponse.json()).recommendations;
+                    addMessage(`Book recommendations: ${recommendations}`, "system");
+
+                    // Clear the selectedMovies array after processing
+                    selectedMovies = [];
+                } catch (error) {
+                    console.error("Error during the model processing workflow:", error);
+                    addMessage("An error occurred during the analysis. Please try again.", "system");
+                }
+            } else if (selectedMovies.length > 3) {
+                addMessage("You can only select 3 movies. Please deselect some.", "system");
+            }
+        }
+
+        function toggleMovieMenu(hide = false) {
+            if (hide || !movieDropdown.classList.contains("hidden")) {
+                movieDropdown.classList.add("hidden");
+            } else {
+                movieDropdown.classList.remove("hidden");
+            }
+        }
+
+        function nextPage() {
+            saveTemporarySelections(); // Save the state of selections before changing pages
+            currentPage++;
+            fetchMovies();
+        }
+
+        function previousPage() {
+            if (currentPage > 1) {
+                saveTemporarySelections(); // Save the state of selections before changing pages
+                currentPage--;
+                fetchMovies();
+            } else {
+                addMessage("You're already on the first page.", "system");
+            }
+        }
+
+        function saveTemporarySelections() {
+            // Save current page selections to the global `selectedMovies` array
+            const selected = Array.from(document.querySelectorAll(".movie-checkbox:checked")).map(input => input.value);
+            selectedMovies = [...new Set([...selectedMovies, ...selected])]; // Avoid duplicates
+        }
+    </script>
+</body>
+</html>
