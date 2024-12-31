@@ -21,7 +21,7 @@ To set up the project locally:
 2. **Navigate to Project Directory:**
     ```
     cd RecommendationApp
-3. **Install Dependancies:**
+3. **Install Dependencies:**
     - For the backend:
     ```
     cd backend
